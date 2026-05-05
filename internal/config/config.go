@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -16,10 +18,16 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	rawUpstream := getenv("UPSTREAM_ADDR", "1.2.3.4:389")
+	upstreamAddr, schemeTLS, err := parseUpstream(rawUpstream)
+	if err != nil {
+		return nil, fmt.Errorf("UPSTREAM_ADDR: %w", err)
+	}
+
 	c := &Config{
 		ProxyListen:           getenv("PROXY_LISTEN", "0.0.0.0:3389"),
-		UpstreamAddr:          getenv("UPSTREAM_ADDR", "1.2.3.4:389"),
-		UpstreamTLS:           getenvBool("UPSTREAM_TLS", false),
+		UpstreamAddr:          upstreamAddr,
+		UpstreamTLS:           getenvBool("UPSTREAM_TLS", schemeTLS),
 		UpstreamTLSSkipVerify: getenvBool("UPSTREAM_TLS_SKIP_VERIFY", false),
 		LogLevel:              strings.ToLower(getenv("LOG_LEVEL", "info")),
 		LogFormat:             strings.ToLower(getenv("LOG_FORMAT", "text")),
@@ -45,6 +53,40 @@ func Load() (*Config, error) {
 	}
 
 	return c, nil
+}
+
+// parseUpstream accepts either a host:port string or an ldap:// / ldaps:// URL.
+// Returns the host:port form for net.Dial and a boolean indicating whether the
+// scheme implied TLS (ldaps). The TLS hint can be overridden by UPSTREAM_TLS.
+func parseUpstream(s string) (addr string, tls bool, err error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false, fmt.Errorf("must not be empty")
+	}
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "ldap://") || strings.HasPrefix(lower, "ldaps://") {
+		u, perr := url.Parse(s)
+		if perr != nil {
+			return "", false, perr
+		}
+		host := u.Hostname()
+		port := u.Port()
+		if host == "" {
+			return "", false, fmt.Errorf("missing host in %q", s)
+		}
+		if port == "" {
+			if strings.EqualFold(u.Scheme, "ldaps") {
+				port = "636"
+			} else {
+				port = "389"
+			}
+		}
+		return net.JoinHostPort(host, port), strings.EqualFold(u.Scheme, "ldaps"), nil
+	}
+	if _, _, perr := net.SplitHostPort(s); perr != nil {
+		return "", false, fmt.Errorf("expected host:port or ldap[s]://host[:port], got %q: %v", s, perr)
+	}
+	return s, false, nil
 }
 
 func getenv(key, fallback string) string {

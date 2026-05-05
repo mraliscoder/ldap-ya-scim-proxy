@@ -57,6 +57,7 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 			return err
 		}
+		s.log.Info("accepted connection", "remote", conn.RemoteAddr().String())
 		s.wg.Add(1)
 		go s.handleClient(ctx, conn)
 	}
