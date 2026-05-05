@@ -161,16 +161,18 @@ func transformSearchResultEntry(packet *ber.Packet, stripAttrs []string, log *sl
 	return modified
 }
 
-// maybeRewriteSearchRequest ensures the upstream request includes at least one
-// of displayName/name/cn whenever the client asked for givenName or sn but
-// none of the source attributes. Returns the list of attribute names the proxy
-// added so the caller can strip them from responses to that messageID.
+// maybeRewriteSearchRequest ensures the upstream request carries everything
+// the proxy needs to perform the displayName→givenName/sn transformation:
+//   - at least one of displayName/name/cn (so we have a source string),
+//   - objectClass (so we can detect that the entry is a user).
+//
+// Returns the list of attribute names the proxy added so the caller can strip
+// them from responses to that messageID.
 //
 // Pass-through cases (returns nil):
 //   - empty attribute list (= all user attributes)
 //   - "*" present (= all user attributes)
 //   - neither givenName nor sn requested
-//   - at least one of displayName/name/cn already requested
 func maybeRewriteSearchRequest(packet *ber.Packet) []string {
 	if len(packet.Children) < 2 {
 		return nil
@@ -203,17 +205,27 @@ func maybeRewriteSearchRequest(packet *ber.Packet) []string {
 		return nil
 	}
 
+	added := make([]string, 0, 4)
+	appendAttr := func(name string) {
+		attrsList.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, name, "Attribute"))
+		added = append(added, name)
+	}
+
 	_, hasDisplay := requested["displayname"]
 	_, hasName := requested["name"]
 	_, hasCN := requested["cn"]
-	if hasDisplay || hasName || hasCN {
-		return nil
+	if !hasDisplay && !hasName && !hasCN {
+		appendAttr(attrDisplayName)
+		appendAttr(attrName)
+		appendAttr(attrCN)
 	}
 
-	added := make([]string, 0, 3)
-	for _, a := range []string{attrDisplayName, attrName, attrCN} {
-		attrsList.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, a, "Attribute"))
-		added = append(added, a)
+	if _, hasObjectClass := requested["objectclass"]; !hasObjectClass {
+		appendAttr(attrObjectClass)
+	}
+
+	if len(added) == 0 {
+		return nil
 	}
 	return added
 }

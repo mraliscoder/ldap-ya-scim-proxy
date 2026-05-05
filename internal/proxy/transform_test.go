@@ -257,9 +257,11 @@ func TestMaybeRewriteSearchRequest_AddsMissingSources(t *testing.T) {
 	req := newSearchRequest(10, []string{"givenName", "sn", "mail"})
 	added := maybeRewriteSearchRequest(req)
 
-	wantAdded := map[string]bool{"displayName": true, "name": true, "cn": true}
+	wantAdded := map[string]bool{
+		"displayName": true, "name": true, "cn": true, "objectClass": true,
+	}
 	if len(added) != len(wantAdded) {
-		t.Fatalf("added = %v; want 3 items", added)
+		t.Fatalf("added = %v; want %d items", added, len(wantAdded))
 	}
 	for _, a := range added {
 		if !wantAdded[a] {
@@ -269,18 +271,42 @@ func TestMaybeRewriteSearchRequest_AddsMissingSources(t *testing.T) {
 
 	got := searchRequestAttrs(encodeAndReparse(t, req))
 	gotJoined := strings.Join(got, ",")
-	for _, must := range []string{"givenName", "sn", "mail", "displayName", "name", "cn"} {
+	for _, must := range []string{"givenName", "sn", "mail", "displayName", "name", "cn", "objectClass"} {
 		if !strings.Contains(gotJoined, must) {
 			t.Errorf("attribute list missing %q after rewrite: %v", must, got)
 		}
 	}
 }
 
-func TestMaybeRewriteSearchRequest_PassThroughWhenSourcePresent(t *testing.T) {
+func TestMaybeRewriteSearchRequest_AddsObjectClassWhenSourcePresent(t *testing.T) {
+	// displayName is already requested but objectClass is not — proxy still
+	// needs objectClass to detect user entries, so it must be injected.
 	req := newSearchRequest(11, []string{"givenName", "sn", "displayName"})
 	added := maybeRewriteSearchRequest(req)
-	if len(added) != 0 {
-		t.Errorf("must not add anything when displayName is already requested; added=%v", added)
+	if len(added) != 1 || strings.ToLower(added[0]) != "objectclass" {
+		t.Fatalf("expected objectClass to be added; got %v", added)
+	}
+	got := searchRequestAttrs(encodeAndReparse(t, req))
+	gotJoined := strings.Join(got, ",")
+	if !strings.Contains(strings.ToLower(gotJoined), "objectclass") {
+		t.Errorf("attribute list missing objectClass after rewrite: %v", got)
+	}
+}
+
+func TestMaybeRewriteSearchRequest_AddsObjectClassAndSources(t *testing.T) {
+	// Neither sources nor objectClass — should add all four.
+	req := newSearchRequest(15, []string{"givenName", "sn", "mail"})
+	added := maybeRewriteSearchRequest(req)
+	wantAdded := map[string]bool{
+		"displayName": true, "name": true, "cn": true, "objectClass": true,
+	}
+	if len(added) != len(wantAdded) {
+		t.Fatalf("added = %v; want 4 items", added)
+	}
+	for _, a := range added {
+		if !wantAdded[a] {
+			t.Errorf("unexpected added attribute %q", a)
+		}
 	}
 }
 

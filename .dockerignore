@@ -4,3 +4,4 @@
 *.md
 Dockerfile
 docker-compose.yml
+*.exe
