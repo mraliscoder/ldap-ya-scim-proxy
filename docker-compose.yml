@@ -1,0 +1,31 @@
+services:
+  ldap-proxy:
+    build: .
+    image: ldap-proxy:latest
+    container_name: ldap-proxy
+    environment:
+      PROXY_LISTEN: "0.0.0.0:3389"
+      UPSTREAM_ADDR: "1.2.3.4:389"
+      UPSTREAM_TLS: "false"
+      UPSTREAM_TLS_SKIP_VERIFY: "false"
+      LOG_LEVEL: "info"
+      LOG_FORMAT: "text"
+    ports:
+      - "3389:3389"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/ldap-proxy", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Example wiring for adscim — point its `urls` at ldap://ldap-proxy:3389
+  # adscim:
+  #   image: registry.yandex.net/adscim:latest
+  #   environment:
+  #     ADSCIM_LDAP_URLS: "ldap://ldap-proxy:3389"
+  #   depends_on:
+  #     ldap-proxy:
+  #       condition: service_healthy
+  #   restart: unless-stopped
